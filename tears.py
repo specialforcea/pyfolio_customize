@@ -16,6 +16,7 @@ from __future__ import division
 
 import warnings
 from time import time
+import os
 
 import empyrical as ep
 from IPython.display import display, Markdown
@@ -91,7 +92,8 @@ def create_full_tear_sheet(returns,
                            factor_loadings=None,
                            pos_in_dollars=True,
                            header_rows=None,
-                           factor_partitions=FACTOR_PARTITIONS):
+                           factor_partitions=FACTOR_PARTITIONS,
+                           test_path=None):
     """
     Generate a number of tear sheets that are useful
     for analyzing a strategy's performance.
@@ -198,7 +200,7 @@ def create_full_tear_sheet(returns,
     positions = utils.check_intraday(estimate_intraday, returns,
                                      positions, transactions)
 
-    fig = create_returns_tear_sheet(
+    perf_stats, DD_stats, returns_fig = create_returns_tear_sheet(
         returns,
         positions=positions,
         transactions=transactions,
@@ -211,12 +213,10 @@ def create_full_tear_sheet(returns,
         set_context=set_context,
         return_fig=True)
 
-    fig.savefig(returns.name + '_charts.pdf')
-    fig = create_interesting_times_tear_sheet(returns,
+    interesting_df, interesting_fig = create_interesting_times_tear_sheet(returns,
                                         benchmark_rets=benchmark_rets,
                                         set_context=set_context,
                                         return_fig=True)
-    fig.savefig(returns.name + '_special_periods.pdf')
 
     if positions is not None:
         create_position_tear_sheet(returns, positions,
@@ -261,6 +261,65 @@ def create_full_tear_sheet(returns,
                                    benchmark_rets=benchmark_rets,
                                    set_context=set_context)
 
+    results = {
+        'Perf_stats': perf_stats,
+        'Drawdown_stats': DD_stats,
+        'Interesting_period_stats': interesting_df,
+        'Returns_fig': [returns_fig, 1500, 5000],
+        'Interesting_period_fig': [interesting_fig, 1500, 600*len(interesting_df)]
+    }
+
+    make_html_from_df_fig(results, test_path)
+
+def make_html_from_df_fig(results, test_path):
+    html_string = '''
+    <html>
+    <style>
+    table, th, td {
+    border:1px solid black;
+    }
+    </style>
+    <body>
+
+    '''
+    if not os.path.exists(test_path+'/figs'):
+        os.mkdir(test_path+'/figs')
+
+    for name, res in results.items():
+
+        if isinstance(res, pd.DataFrame):
+            ticker_html = f'''
+            
+            <h2>{name}</h2>
+
+            {res.to_html()}
+            '''
+
+            html_string += ticker_html
+
+        else:
+            fig, wid, hei = res
+            fig.savefig(test_path+f'/figs/{name}.jpg')
+
+            ticker_html = f'''
+            <h2>{name}</h2>
+            <img src="../figs/{name}.jpg" alt="{name}" width="{wid}" height="{hei}">
+
+            '''
+
+            html_string += ticker_html
+
+    html_string += '''
+
+        </body>
+        </html>
+
+    '''
+    if not os.path.exists(test_path+'/stats'):
+        os.mkdir(test_path+'/stats')
+
+    with open(f'{test_path}/stats/complete_stats.html','w') as html_file:
+        html_file.write(html_string)
 
 @plotting.customize
 def create_simple_tear_sheet(returns,
@@ -578,10 +637,20 @@ def create_returns_tear_sheet(returns, positions=None,
                              bootstrap=bootstrap,
                              live_start_date=live_start_date,
                              header_rows=header_rows)
+    
+    if benchmark_rets is not None:
 
+        Bmark_perf_stats = plotting.show_perf_stats(benchmark_rets, benchmark_rets,
+                             positions=positions,
+                             transactions=transactions,
+                             turnover_denom=turnover_denom,
+                             bootstrap=bootstrap,
+                             live_start_date=live_start_date,
+                             header_rows=header_rows)
 
-    perf_stats.to_csv(returns.name + '_stats.csv')
-    plotting.show_worst_drawdown_periods(returns)
+        perf_stats = perf_stats.join(Bmark_perf_stats)
+
+    DD_stats = plotting.show_worst_drawdown_periods(returns)
 
     vertical_sections = 11
 
@@ -595,8 +664,8 @@ def create_returns_tear_sheet(returns, positions=None,
     if bootstrap:
         vertical_sections += 1
 
-    fig = plt.figure(figsize=(14, vertical_sections * 6))
-    gs = gridspec.GridSpec(vertical_sections, 3, wspace=0.5, hspace=0.5)
+    fig = plt.figure(figsize=(14, vertical_sections * 3))
+    gs = gridspec.GridSpec(vertical_sections, 3, top=0.95, bottom=0.05, wspace=0.5, hspace=0.6)
     ax_rolling_returns = plt.subplot(gs[:2, :])
 
     i = 2
@@ -642,7 +711,6 @@ def create_returns_tear_sheet(returns, positions=None,
         live_start_date=live_start_date,
         cone_std=None,
         volatility_match=(benchmark_rets is not None),
-        legend_loc=None,
         ax=ax_rolling_returns_vol_match)
     ax_rolling_returns_vol_match.set_title(
         'Cumulative returns volatility matched to benchmark')
@@ -702,8 +770,12 @@ def create_returns_tear_sheet(returns, positions=None,
     for ax in fig.axes:
         plt.setp(ax.get_xticklabels(), visible=True)
 
+    plt.tight_layout()
+
     if return_fig:
-        return fig
+        return perf_stats, DD_stats, fig
+    else:
+        return perf_stats, DD_stats
 
 
 
@@ -1007,10 +1079,11 @@ def create_interesting_times_tear_sheet(
         warnings.warn('Passed returns do not overlap with any'
                       'interesting times.', UserWarning)
         return
-
-    utils.print_table(pd.DataFrame(rets_interesting)
+    interesting_df = (pd.DataFrame(rets_interesting)
                       .describe().transpose()
-                      .loc[:, ['mean', 'min', 'max']] * 100,
+                      .loc[:, ['mean', 'min', 'max']] * 100)
+
+    utils.print_table(interesting_df,
                       name='Stress Events',
                       float_format='{0:.2f}%'.format)
 
@@ -1020,11 +1093,18 @@ def create_interesting_times_tear_sheet(
         bmark_interesting = timeseries.extract_interesting_date_ranges(
             benchmark_rets)
 
+        bmark_interesting_df = (pd.DataFrame(bmark_interesting)
+                                .describe().transpose()
+                                .loc[:, ['mean', 'min', 'max']] * 100)
+        
+        interesting_df = interesting_df.join(bmark_interesting_df, lsuffix='_strat', rsuffix='_bmark')
+
+
     num_plots = len(rets_interesting)
     # 2 plots, 1 row; 3 plots, 2 rows; 4 plots, 2 rows; etc.
     num_rows = int((num_plots + 1) / 2.0)
-    fig = plt.figure(figsize=(14, num_rows * 6.0))
-    gs = gridspec.GridSpec(num_rows, 2, wspace=0.5, hspace=0.5)
+    fig = plt.figure(figsize=(14, num_rows * 5.0 + 2.0))
+    gs = gridspec.GridSpec(num_rows, 2, top=0.95, bottom=0.05, wspace=0.5, hspace=0.5)
 
     for i, (name, rets_period) in enumerate(rets_interesting.items()):
         # i=0 -> 0, i=1 -> 0, i=2 -> 1 ;; i=0 -> 0, i=1 -> 1, i=2 -> 0
@@ -1047,8 +1127,12 @@ def create_interesting_times_tear_sheet(
         ax.set_ylabel('Returns')
         ax.set_xlabel('')
 
+    plt.tight_layout()
+
     if return_fig:
-        return fig
+        return interesting_df, fig
+    else:
+        return interesting_df
 
 
 @plotting.customize

@@ -803,6 +803,7 @@ def plot_rolling_returns(returns,
         returns = (returns / returns.std()) * bmark_vol
 
     cum_rets = ep.cum_returns(returns, 1.0)
+    cum_rets = cum_rets.rename(returns.name)
 
     y_axis_formatter = FuncFormatter(utils.two_dec_places)
     ax.yaxis.set_major_formatter(FuncFormatter(y_axis_formatter))
@@ -1696,12 +1697,13 @@ def show_worst_drawdown_periods(returns, top=5):
     """
 
     drawdown_df = timeseries.gen_drawdown_table(returns, top=top)
+    drawdown_df = drawdown_df.sort_values('Net drawdown in %', ascending=False)
     utils.print_table(
-        drawdown_df.sort_values('Net drawdown in %', ascending=False),
+        drawdown_df,
         name='Worst drawdown periods',
         float_format='{0:.2f}'.format,
     )
-
+    return drawdown_df
 
 def plot_monthly_returns_timeseries(returns, ax=None, **kwargs):
     """
