@@ -26,6 +26,9 @@ import numpy as np
 import pandas as pd
 import scipy.stats
 
+plt.style.use('dark_background')
+
+
 from . import _seaborn as sns
 from . import capacity
 from . import perf_attrib
@@ -769,6 +772,11 @@ def create_returns_tear_sheet(returns, positions=None,
 
     for ax in fig.axes:
         plt.setp(ax.get_xticklabels(), visible=True)
+        ax.tick_params(axis='x', colors='pink')
+        ax.tick_params(axis='y', colors='pink')
+        ax.yaxis.label.set_color('pink')
+        ax.xaxis.label.set_color('pink')
+        ax.title.set_color('pink')
 
     plt.tight_layout()
 
@@ -1126,6 +1134,11 @@ def create_interesting_times_tear_sheet(
         ax.set_title(name)
         ax.set_ylabel('Returns')
         ax.set_xlabel('')
+        ax.tick_params(axis='x', colors='pink')
+        ax.tick_params(axis='y', colors='pink')
+        ax.yaxis.label.set_color('pink')
+        ax.xaxis.label.set_color('pink')
+        ax.title.set_color('pink')
 
     plt.tight_layout()
 
