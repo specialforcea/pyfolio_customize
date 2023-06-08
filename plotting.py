@@ -39,7 +39,6 @@ from . import utils
 from .utils import (APPROX_BDAYS_PER_MONTH,
                     MM_DISPLAY_UNIT)
 
-
 def customize(func):
     """
     Decorator to set plotting context and axes style during function call.
@@ -346,7 +345,7 @@ def plot_holdings(returns, positions, legend_loc='best', ax=None, **kwargs):
     ax.set_title('Total holdings')
     ax.set_ylabel('Holdings')
     ax.set_xlabel('')
-    return ax
+    return ax, pd.DataFrame({'all#': df_holdings})
 
 
 def plot_long_short_holdings(returns, positions,
@@ -403,7 +402,7 @@ def plot_long_short_holdings(returns, positions,
     ax.set_title('Long and short holdings')
     ax.set_ylabel('Holdings')
     ax.set_xlabel('')
-    return ax
+    return ax, pd.DataFrame({'long#': df_longs, 'short#': df_shorts})
 
 
 def plot_drawdown_periods(returns, top=10, ax=None, **kwargs):
@@ -1093,7 +1092,7 @@ def plot_gross_leverage(returns, positions, ax=None, **kwargs):
     ax.set_title('Gross leverage')
     ax.set_ylabel('Gross leverage')
     ax.set_xlabel('')
-    return ax
+    return ax, pd.DataFrame({'gross_leverage': gl})
 
 
 def plot_exposures(returns, positions, ax=None, **kwargs):
@@ -1143,9 +1142,10 @@ def plot_exposures(returns, positions, ax=None, **kwargs):
     ax.set_ylabel('Exposure')
     ax.legend(loc='lower left', frameon=True, framealpha=0.5)
     ax.set_xlabel('')
-    return ax
+    return ax, pd.DataFrame({'long_exp': l_exp, 'short_exp': s_exp, 'net_exp': net_exp})
 
 
+    
 def show_and_plot_top_positions(returns, positions_alloc,
                                 show_and_plot=2, hide_positions=False,
                                 legend_loc='real_best', ax=None,
@@ -1199,6 +1199,7 @@ def show_and_plot_top_positions(returns, positions_alloc,
                           float_format='{0:.2f}%'.format,
                           name='Top 10 positions of all time')
 
+
     if show_and_plot == 0 or show_and_plot == 2:
 
         if ax is None:
@@ -1226,7 +1227,7 @@ def show_and_plot_top_positions(returns, positions_alloc,
         if hide_positions:
             ax.legend_.remove()
 
-        return ax
+        return ax, pd.DataFrame({'Top10L': df_top_long, 'Top10S': df_top_short, 'Top10Abs': df_top_abs})
 
 
 def plot_max_median_position_concentration(positions, ax=None, **kwargs):
@@ -1398,7 +1399,7 @@ def plot_turnover(returns, transactions, positions,
     y_axis_formatter = FuncFormatter(utils.two_dec_places)
     ax.yaxis.set_major_formatter(FuncFormatter(y_axis_formatter))
 
-    df_turnover = txn.get_turnover(positions, transactions)
+    df_turnover = txn.get_turnover(positions, transactions, denominator='portfolio_value')
     df_turnover_by_month = df_turnover.resample("M").mean()
     df_turnover.plot(color='steelblue', alpha=1.0, lw=0.5, ax=ax, **kwargs)
     df_turnover_by_month.plot(
@@ -1415,10 +1416,10 @@ def plot_turnover(returns, transactions, positions,
               loc=legend_loc, frameon=True, framealpha=0.5)
     ax.set_title('Daily turnover')
     ax.set_xlim((returns.index[0], returns.index[-1]))
-    ax.set_ylim((0, 2))
+    ax.set_ylim((0, 1))
     ax.set_ylabel('Turnover')
     ax.set_xlabel('')
-    return ax
+    return ax, pd.DataFrame({'turnover': df_turnover})
 
 
 def plot_slippage_sweep(returns, positions, transactions,
@@ -1619,7 +1620,7 @@ def plot_daily_volume(returns, transactions, ax=None, **kwargs):
     ax.set_xlim((returns.index[0], returns.index[-1]))
     ax.set_ylabel('Amount of shares traded')
     ax.set_xlabel('')
-    return ax
+    return ax, daily_txn
 
 
 def plot_txn_time_hist(transactions, bin_minutes=5, tz='America/New_York',
@@ -1655,7 +1656,10 @@ def plot_txn_time_hist(transactions, bin_minutes=5, tz='America/New_York',
 
     txn_time = transactions.copy()
 
-    txn_time.index = txn_time.index.tz_convert(pytz.timezone(tz))
+    if txn_time.index.tzinfo is None:
+        txn_time.index = txn_time.index.tz_localize(pytz.timezone(tz))
+    else:
+        txn_time.index = txn_time.index.tz_convert(pytz.timezone(tz))
     txn_time.index = txn_time.index.map(lambda x: x.hour * 60 + x.minute)
     txn_time['trade_value'] = (txn_time.amount * txn_time.price).abs()
     txn_time = txn_time.groupby(level=0).sum().reindex(index=range(570, 961))

@@ -220,19 +220,22 @@ def create_full_tear_sheet(returns,
                                         benchmark_rets=benchmark_rets,
                                         set_context=set_context,
                                         return_fig=True)
-
+    position_fig = None
+    txn_fig = None
     if positions is not None:
-        create_position_tear_sheet(returns, positions,
+        df_top, all_pos_df, position_fig = create_position_tear_sheet(returns, positions,
                                    hide_positions=hide_positions,
                                    set_context=set_context,
                                    sector_mappings=sector_mappings,
-                                   estimate_intraday=False)
+                                   estimate_intraday=False,
+                                   return_fig=True)
 
         if transactions is not None:
-            create_txn_tear_sheet(returns, positions, transactions,
+            txn_df, txn_fig = create_txn_tear_sheet(returns, positions, transactions,
                                   unadjusted_returns=unadjusted_returns,
                                   estimate_intraday=False,
-                                  set_context=set_context)
+                                  set_context=set_context,
+                                  return_fig=True)
             if round_trips:
                 create_round_trip_tear_sheet(
                     returns=returns,
@@ -269,8 +272,15 @@ def create_full_tear_sheet(returns,
         'Drawdown_stats': DD_stats,
         'Interesting_period_stats': interesting_df,
         'Returns_fig': [returns_fig, 1500, 5000],
-        'Interesting_period_fig': [interesting_fig, 1500, 600*len(interesting_df)]
+        'Interesting_period_fig': [interesting_fig, 1500, 500*len(interesting_df)],
     }
+    if positions is not None:
+        results['Top_positions'] = df_top
+        results['All_positions_description'] = all_pos_df
+        results['Position_fig'] = [position_fig, 1500, 600*7]
+        if transactions is not None:
+            results['Transactions'] = txn_df
+            results['Txn_fig'] = [txn_fig, 1500, 600*6]
 
     make_html_from_df_fig(results, test_path)
 
@@ -288,7 +298,8 @@ def make_html_from_df_fig(results, test_path):
     if not os.path.exists(test_path+'/figs'):
         os.mkdir(test_path+'/figs')
 
-    for name, res in results.items():
+    sorted_results = sorted(results.items(), key=lambda x: str(type(x[1])), reverse=True)
+    for name, res in sorted_results:
 
         if isinstance(res, pd.DataFrame):
             ticker_html = f'''
@@ -572,7 +583,83 @@ def compute_stats(returns, positions=None,
 
     return df_stats
 
+@plotting.customize
+def compute_all_stats_tables(returns, positions=None,
+                              transactions=None,
+                              live_start_date=None,
+                              cone_std=(1.0, 1.5, 2.0),
+                              benchmark_rets=None,
+                              bootstrap=False,
+                              turnover_denom='AGB',
+                              header_rows=None):
+    """
+        Generate a number of plots for analyzing a strategy's returns.
 
+        - Fetches benchmarks, then creates the plots on a single figure.
+        - Plots: rolling returns (with cone), rolling beta, rolling sharpe,
+            rolling Fama-French risk factors, drawdowns, underwater plot, monthly
+            and annual return plots, daily similarity plots,
+            and return quantile box plot.
+        - Will also print the start and end dates of the strategy,
+            performance statistics, drawdown periods, and the return range.
+
+        Parameters
+        ----------
+        returns : pd.DataFrame
+            Daily returns of the strategies, noncumulative.
+             - See full explanation in create_full_tear_sheet.
+        positions : pd.DataFrame, optional
+            Daily net position values.
+             - See full explanation in create_full_tear_sheet.
+        transactions : pd.DataFrame, optional
+            Executed trade volumes and fill prices.
+            - See full explanation in create_full_tear_sheet.
+        live_start_date : datetime, optional
+            The point in time when the strategy began live trading,
+            after its backtest period.
+        cone_std : float, or tuple, optional
+            If float, The standard deviation to use for the cone plots.
+            If tuple, Tuple of standard deviation values to use for the cone plots
+             - The cone is a normal distribution with this standard deviation
+                 centered around a linear regression.
+        benchmark_rets : pd.Series, optional
+            Daily noncumulative returns of the benchmark.
+             - This is in the same style as returns.
+        bootstrap : boolean, optional
+            Whether to perform bootstrap analysis for the performance
+            metrics. Takes a few minutes longer.
+        turnover_denom : str, optional
+            Either AGB or portfolio_value, default AGB.
+            - See full explanation in txn.get_turnover.
+        header_rows : dict or OrderedDict, optional
+            Extra rows to display at the top of the perf stats table.
+        """
+
+    col = returns.columns[0]
+    ret = returns[col]
+    if benchmark_rets is not None:
+        ret = utils.clip_returns_to_benchmark(ret, benchmark_rets)
+
+    df_stats = plotting.show_perf_stats(ret, benchmark_rets,
+                                            positions=positions,
+                                            transactions=transactions,
+                                            turnover_denom=turnover_denom,
+                                            bootstrap=bootstrap,
+                                            live_start_date=live_start_date,
+                                            header_rows=header_rows)
+
+    df_DD = plotting.show_worst_drawdown_periods(ret)
+
+    df_interesting = compute_interesting_times_stats_table(ret, benchmark_rets=benchmark_rets)
+
+    if positions is not None:
+        df_top, df_all_pos = compute_position_stats_tables(ret, positions)
+
+        if transactions is not None:
+            df_transactions = compute_transactions_stats_tables(ret, positions, transactions)
+        
+
+    return df_stats, df_DD, df_interesting, df_top, df_all_pos, df_transactions
 
 @plotting.customize
 def create_returns_tear_sheet(returns, positions=None,
@@ -706,7 +793,7 @@ def create_returns_tear_sheet(returns, positions=None,
         cone_std=cone_std,
         ax=ax_rolling_returns)
     ax_rolling_returns.set_title(
-        'Cumulative returns')
+        'Cumulative returns', color='pink')
 
     plotting.plot_rolling_returns(
         returns,
@@ -752,7 +839,7 @@ def create_returns_tear_sheet(returns, positions=None,
 
     plotting.plot_drawdown_underwater(
         returns=returns, ax=ax_underwater)
-
+    
     plotting.plot_monthly_returns_heatmap(returns, ax=ax_monthly_heatmap)
     plotting.plot_annual_returns(returns, ax=ax_annual_returns)
 
@@ -785,7 +872,89 @@ def create_returns_tear_sheet(returns, positions=None,
     else:
         return perf_stats, DD_stats
 
+@plotting.customize
+def compute_position_stats_tables(returns, positions,
+                               transactions=None, estimate_intraday='infer'):
+    """
+    Generate a number of plots for analyzing a
+    strategy's positions and holdings.
 
+    - Plots: gross leverage, exposures, top positions, and holdings.
+    - Will also print the top positions held.
+
+    Parameters
+    ----------
+    returns : pd.Series
+        Daily returns of the strategy, noncumulative.
+         - See full explanation in create_full_tear_sheet.
+    positions : pd.DataFrame
+        Daily net position values.
+         - See full explanation in create_full_tear_sheet.
+    show_and_plot_top_pos : int, optional
+        By default, this is 2, and both prints and plots the
+        top 10 positions.
+        If this is 0, it will only plot; if 1, it will only print.
+    hide_positions : bool, optional
+        If True, will not output any symbol names.
+        Overrides show_and_plot_top_pos to 0 to suppress text output.
+    return_fig : boolean, optional
+        If True, returns the figure that was plotted on.
+    sector_mappings : dict or pd.Series, optional
+        Security identifier to sector mapping.
+        Security ids as keys, sectors as values.
+    transactions : pd.DataFrame, optional
+        Prices and amounts of executed trades. One row per trade.
+         - See full explanation in create_full_tear_sheet.
+    estimate_intraday: boolean or str, optional
+        Approximate returns for intraday strategies.
+        See description in create_full_tear_sheet.
+    """
+
+    positions = utils.check_intraday(estimate_intraday, returns,
+                                     positions, transactions)
+
+    positions_alloc = pos.get_percent_alloc(positions)
+
+    pos_no_cash = positions.drop('cash', axis=1)
+    l_exp = pos_no_cash[pos_no_cash > 0].sum(axis=1) / positions.sum(axis=1)
+    s_exp = pos_no_cash[pos_no_cash < 0].sum(axis=1) / positions.sum(axis=1)
+    net_exp = pos_no_cash.sum(axis=1) / positions.sum(axis=1)
+
+    exp_df = pd.DataFrame({'long_exp': l_exp, 'short_exp': s_exp, 'net_exp': net_exp})
+
+    pctls = [0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]
+
+    all_pos_dfs = exp_df.describe(percentiles=pctls)
+    
+    temp_pos = positions_alloc.copy()
+    temp_pos.columns = temp_pos.columns.map(utils.format_asset)
+
+    df_top_long, df_top_short, df_top_abs = pos.get_top_long_short_abs(temp_pos)
+
+    df_top =  pd.DataFrame({'Top10L': df_top_long, 'Top10S': df_top_short, 'Top10Abs': df_top_abs})
+    
+    df_holdings = (
+        positions_alloc.drop('cash', axis='columns')
+        .replace(0, np.nan)
+        .count(axis=1)
+        .to_frame('all#')
+    )
+
+    temp_pos = positions_alloc.drop('cash', axis='columns').replace(0, np.nan)
+    df_longs = temp_pos[temp_pos > 0].count(axis=1)
+    df_shorts = temp_pos[temp_pos < 0].count(axis=1)
+    df_LS_holdings = pd.DataFrame({'long#': df_longs, 'short#': df_shorts})
+
+    df_gl = pd.DataFrame({'gross_leverage': timeseries.gross_lev(positions)})
+    
+    all_pos_dfs = pd.concat([
+        all_pos_dfs,
+        df_holdings.describe(percentiles=pctls),
+        df_LS_holdings.describe(percentiles=pctls),
+        df_gl.describe(percentiles=pctls)
+    ], axis=1)
+
+    return df_top, all_pos_dfs
 
 @plotting.customize
 def create_position_tear_sheet(returns, positions,
@@ -845,25 +1014,36 @@ def create_position_tear_sheet(returns, positions,
 
     positions_alloc = pos.get_percent_alloc(positions)
 
-    plotting.plot_exposures(returns, positions, ax=ax_exposures)
+    _, exp_df = plotting.plot_exposures(returns, positions, ax=ax_exposures)
 
-    plotting.show_and_plot_top_positions(
-        returns,
-        positions_alloc,
-        show_and_plot=show_and_plot_top_pos,
-        hide_positions=hide_positions,
-        ax=ax_top_positions)
+    pctls = [0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95]
+
+    all_pos_dfs = exp_df.describe(percentiles=pctls)
+
+    _, df_top = plotting.show_and_plot_top_positions(
+            returns,
+            positions_alloc,
+            show_and_plot=show_and_plot_top_pos,
+            hide_positions=hide_positions,
+            ax=ax_top_positions)
 
     plotting.plot_max_median_position_concentration(positions,
                                                     ax=ax_max_median_pos)
 
-    plotting.plot_holdings(returns, positions_alloc, ax=ax_holdings)
+    _, df_holdings = plotting.plot_holdings(returns, positions_alloc, ax=ax_holdings)
 
-    plotting.plot_long_short_holdings(returns, positions_alloc,
+    _, df_LS_holdings = plotting.plot_long_short_holdings(returns, positions_alloc,
                                       ax=ax_long_short_holdings)
 
-    plotting.plot_gross_leverage(returns, positions,
+    _, df_gl = plotting.plot_gross_leverage(returns, positions,
                                  ax=ax_gross_leverage)
+    
+    all_pos_dfs = pd.concat([
+        all_pos_dfs,
+        df_holdings.describe(percentiles=pctls),
+        df_LS_holdings.describe(percentiles=pctls),
+        df_gl.describe(percentiles=pctls)
+    ], axis=1)
 
     if sector_mappings is not None:
         sector_exposures = pos.get_sector_exposures(positions,
@@ -877,10 +1057,27 @@ def create_position_tear_sheet(returns, positions,
 
     for ax in fig.axes:
         plt.setp(ax.get_xticklabels(), visible=True)
+        ax.tick_params(axis='x', colors='pink')
+        ax.tick_params(axis='y', colors='pink')
+        ax.yaxis.label.set_color('pink')
+        ax.xaxis.label.set_color('pink')
+        ax.title.set_color('pink')
 
     if return_fig:
-        return fig
+        return df_top, all_pos_dfs, fig
 
+def compute_transactions_stats_tables(returns, positions, transactions,
+                          unadjusted_returns=None, estimate_intraday='infer'):
+    """
+    Generate a number of plots for analyzing a strategy's transactions.
+    """
+    positions = utils.check_intraday(estimate_intraday, returns,
+                                     positions, transactions)
+    df_turnover = txn.get_turnover(positions, transactions, denominator='portfolio_value').to_frame('turnover')
+    df_txn = txn.get_txn_vol(transactions)
+    df_txn_desp = df_txn.describe().join(df_turnover.describe())
+
+    return df_txn_desp
 
 @plotting.customize
 def create_txn_tear_sheet(returns, positions, transactions,
@@ -926,13 +1123,15 @@ def create_txn_tear_sheet(returns, positions, transactions,
     ax_turnover_hist = plt.subplot(gs[2, :])
     ax_txn_timings = plt.subplot(gs[3, :])
 
-    plotting.plot_turnover(
+    _, df_turnover = plotting.plot_turnover(
         returns,
         transactions,
         positions,
         ax=ax_turnover)
 
-    plotting.plot_daily_volume(returns, transactions, ax=ax_daily_volume)
+    _, df_txn = plotting.plot_daily_volume(returns, transactions, ax=ax_daily_volume)
+
+    df_txn_desp = df_txn.describe().join(df_turnover.describe())
 
     try:
         plotting.plot_daily_turnover_hist(transactions, positions,
@@ -957,9 +1156,14 @@ def create_txn_tear_sheet(returns, positions, transactions,
                                            )
     for ax in fig.axes:
         plt.setp(ax.get_xticklabels(), visible=True)
+        ax.tick_params(axis='x', colors='pink')
+        ax.tick_params(axis='y', colors='pink')
+        ax.yaxis.label.set_color('pink')
+        ax.xaxis.label.set_color('pink')
+        ax.title.set_color('pink')
 
     if return_fig:
-        return fig
+        return df_txn_desp, fig
 
 
 @plotting.customize
@@ -1051,7 +1255,59 @@ def create_round_trip_tear_sheet(returns, positions, transactions,
     if return_fig:
         return fig
 
+@plotting.customize
+def compute_interesting_times_stats_table(
+        returns, benchmark_rets=None):
+    """
+    Generate a number of returns plots around interesting points in time,
+    like the flash crash and 9/11.
 
+    Plots: returns around the dotcom bubble burst, Lehmann Brothers' failure,
+    9/11, US downgrade and EU debt crisis, Fukushima meltdown, US housing
+    bubble burst, EZB IR, Great Recession (August 2007, March and September
+    of 2008, Q1 & Q2 2009), flash crash, April and October 2014.
+
+    benchmark_rets must be passed, as it is meaningless to analyze performance
+    during interesting times without some benchmark to refer to.
+
+    Parameters
+    ----------
+    returns : pd.Series
+        Daily returns of the strategy, noncumulative.
+         - See full explanation in create_full_tear_sheet.
+    benchmark_rets : pd.Series
+        Daily noncumulative returns of the benchmark.
+         - This is in the same style as returns.
+    legend_loc : plt.legend_loc, optional
+         The legend's location.
+    return_fig : boolean, optional
+        If True, returns the figure that was plotted on.
+    """
+
+    rets_interesting = timeseries.extract_interesting_date_ranges(returns)
+
+    if not rets_interesting:
+        warnings.warn('Passed returns do not overlap with any'
+                      'interesting times.', UserWarning)
+        return
+    interesting_df = (pd.DataFrame(rets_interesting)
+                      .describe().transpose()
+                      .loc[:, ['mean', 'min', 'max']] * 100)
+
+    if benchmark_rets is not None:
+        returns = utils.clip_returns_to_benchmark(returns, benchmark_rets)
+
+        bmark_interesting = timeseries.extract_interesting_date_ranges(
+            benchmark_rets)
+
+        bmark_interesting_df = (pd.DataFrame(bmark_interesting)
+                                .describe().transpose()
+                                .loc[:, ['mean', 'min', 'max']] * 100)
+        
+        interesting_df = interesting_df.join(bmark_interesting_df, lsuffix='_strat', rsuffix='_bmark')
+
+    return interesting_df
+    
 @plotting.customize
 def create_interesting_times_tear_sheet(
         returns, benchmark_rets=None, legend_loc='best', return_fig=False):

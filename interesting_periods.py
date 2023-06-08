@@ -76,3 +76,24 @@ PERIODS['Recovery'] = (pd.Timestamp('20090401'),
 
 PERIODS['New Normal'] = (pd.Timestamp('20130101'),
                          pd.Timestamp('today'))
+
+PERIODS['PostGFCLowRates'] = (pd.Timestamp('20081201'),
+                         pd.Timestamp('20151201'))
+
+PERIODS['2015RaiseRates'] = (pd.Timestamp('20151201'),
+                         pd.Timestamp('20190701'))
+
+PERIODS['2015RaiseRates'] = (pd.Timestamp('20151201'),
+                         pd.Timestamp('20190701'))
+
+PERIODS['COVID_QE'] = (pd.Timestamp('20200301'),
+                         pd.Timestamp('20220201'))
+
+PERIODS['POSTCOVID_RaiseRates'] = (pd.Timestamp('20220201'),
+                         pd.Timestamp('20230601'))
+
+PERIODS['COVID_Crisis'] = (pd.Timestamp('20200301'),
+                         pd.Timestamp('20200601'))
+
+PERIODS['COVID_Rally'] = (pd.Timestamp('20200319'),
+                         pd.Timestamp('20211231'))
