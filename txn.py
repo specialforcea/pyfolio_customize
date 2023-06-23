@@ -15,6 +15,7 @@
 from __future__ import division
 
 import pandas as pd
+import numpy as np
 
 
 def map_transaction(txn):
@@ -204,3 +205,56 @@ def get_turnover(positions, transactions, denominator='AGB'):
     turnover = traded_value.div(denom, axis='index')
     turnover = turnover.fillna(0)
     return turnover
+
+def calc_vwap(df):
+    price = df['price'].values
+    amount = df['amount'].values
+    total_price = []
+    vwap = []
+    pnl = []
+    
+    tp = 0
+    cm = 0
+
+    cum_amount = amount.cumsum()
+    liquidate = np.abs(cum_amount)<np.abs(np.roll(cum_amount,1))
+    liquidate[0] = False
+
+    for i in range(len(price)):
+        if (not liquidate[i]) or i==0:
+            tp += price[i]*amount[i]
+            total_price.append(tp)
+            vwap.append(tp/cum_amount[i])
+            pnl.append(np.nan)
+        else:
+            tp += tp/cum_amount[i-1]*amount[i]
+            total_price.append(tp)
+            pnl.append((vwap[-1] - price[i])*amount[i])
+            if abs(cum_amount[i]) < 1e-4:
+                vwap.append(0.)
+            else:
+                vwap.append(tp/cum_amount[i])
+            
+    return pd.DataFrame(np.array([cum_amount, liquidate, total_price, vwap, pnl]).T, 
+                        columns=['cum_amount', 'liquidate', 'total_price', 'vwap', 'pnl'],
+                        index=df.index)
+
+def get_by_trade_stats(transactions):
+
+    if isinstance(transactions, pd.DataFrame) and transactions.empty:
+        return pd.DataFrame(), pd.DataFrame()
+    df_trade_pnl = transactions.reset_index().groupby('symbol').apply(
+        lambda x: x.join(calc_vwap(x))
+    ).sort_values(['symbol', 'date']).set_index(['symbol', 'date'])
+    
+    df_trade_win = df_trade_pnl.dropna()
+    df_trade_win = df_trade_win.groupby('symbol').agg(
+        win_num=('pnl', lambda x: (x>0).astype(int).sum()) , total_num=('pnl', 'size')
+    )
+
+    df_trade_win = df_trade_win.join(df_trade_pnl.dropna().groupby('symbol').pnl.describe().iloc[:,1:])
+
+    return df_trade_win, df_trade_pnl
+
+
+

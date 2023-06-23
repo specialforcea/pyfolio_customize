@@ -28,7 +28,7 @@ from .deprecate import deprecated
 from .interesting_periods import PERIODS
 from .txn import get_turnover
 from .utils import APPROX_BDAYS_PER_MONTH, APPROX_BDAYS_PER_YEAR
-from .utils import DAILY
+from .utils import DAILY, FIVE_MIN
 
 DEPRECATION_WARNING = ("Risk functions in pyfolio.timeseries are deprecated "
                        "and will be removed in a future release. Please "
@@ -739,9 +739,26 @@ def perf_stats(returns, factor_returns=None, positions=None,
         Performance metrics.
     """
 
+    period = returns.index[-1] - returns.index[-2]
+    if period == pd.Timedelta('1 days 00:00:00'):
+        period = DAILY
+    elif period == pd.Timedelta('0 days 00:05:00'):
+        period = FIVE_MIN
+    else:
+        raise ValueError('Period %s is not supported' % period)
+
     stats = pd.Series()
     for stat_func in SIMPLE_STAT_FUNCS:
-        stats[STAT_FUNC_NAMES[stat_func.__name__]] = stat_func(returns)
+        if stat_func.__name__ in ['skew','kurtosis']:
+            if 'period' in stat_func.__code__.co_varnames:
+                stats[STAT_FUNC_NAMES[stat_func.__name__]] = stat_func(returns.dropna(), period=period)
+            else:
+                stats[STAT_FUNC_NAMES[stat_func.__name__]] = stat_func(returns.dropna())
+        else:
+            if 'period' in stat_func.__code__.co_varnames:
+                stats[STAT_FUNC_NAMES[stat_func.__name__]] = stat_func(returns, period=period)
+            else:
+                stats[STAT_FUNC_NAMES[stat_func.__name__]] = stat_func(returns)
 
     if positions is not None:
         stats['Gross leverage'] = gross_lev(positions).mean()

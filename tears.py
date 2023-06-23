@@ -71,6 +71,8 @@ def timer(msg_body, previous_time):
 def create_full_tear_sheet(returns,
                            positions=None,
                            transactions=None,
+                           positions_bm=None,
+                           transactions_bm=None,
                            market_data=None,
                            benchmark_rets=None,
                            slippage=None,
@@ -96,7 +98,9 @@ def create_full_tear_sheet(returns,
                            pos_in_dollars=True,
                            header_rows=None,
                            factor_partitions=FACTOR_PARTITIONS,
-                           test_path=None):
+                           test_path=None,
+                           backtest_params=None,
+                           Benchmark_params=None):
     """
     Generate a number of tear sheets that are useful
     for analyzing a strategy's performance.
@@ -207,6 +211,8 @@ def create_full_tear_sheet(returns,
         returns,
         positions=positions,
         transactions=transactions,
+        positions_bm=positions_bm,
+        transactions_bm=transactions_bm,
         live_start_date=live_start_date,
         cone_std=cone_std,
         benchmark_rets=benchmark_rets,
@@ -214,7 +220,9 @@ def create_full_tear_sheet(returns,
         turnover_denom=turnover_denom,
         header_rows=header_rows,
         set_context=set_context,
-        return_fig=True)
+        return_fig=True,
+        backtest_params=backtest_params,
+        Benchmark_params=Benchmark_params)
 
     interesting_df, interesting_fig = create_interesting_times_tear_sheet(returns,
                                         benchmark_rets=benchmark_rets,
@@ -231,7 +239,7 @@ def create_full_tear_sheet(returns,
                                    return_fig=True)
 
         if transactions is not None:
-            txn_df, txn_fig = create_txn_tear_sheet(returns, positions, transactions,
+            txn_df, df_trade_win, df_trade_pnl, txn_fig = create_txn_tear_sheet(returns, positions, transactions,
                                   unadjusted_returns=unadjusted_returns,
                                   estimate_intraday=False,
                                   set_context=set_context,
@@ -280,6 +288,8 @@ def create_full_tear_sheet(returns,
         results['Position_fig'] = [position_fig, 1500, 600*7]
         if transactions is not None:
             results['Transactions'] = txn_df
+            results['Trade_pnl'] = df_trade_pnl
+            results['Trade_win'] = df_trade_win
             results['Txn_fig'] = [txn_fig, 1500, 600*6]
 
     make_html_from_df_fig(results, test_path)
@@ -296,7 +306,7 @@ def make_html_from_df_fig(results, test_path):
 
     '''
     if not os.path.exists(test_path+'/figs'):
-        os.mkdir(test_path+'/figs')
+        os.makedirs(test_path+'/figs')
 
     sorted_results = sorted(results.items(), key=lambda x: str(type(x[1])), reverse=True)
     for name, res in sorted_results:
@@ -657,13 +667,16 @@ def compute_all_stats_tables(returns, positions=None,
 
         if transactions is not None:
             df_transactions = compute_transactions_stats_tables(ret, positions, transactions)
+            df_trade_win, df_trade_pnl = txn.get_by_trade_stats(transactions)
         
 
-    return df_stats, df_DD, df_interesting, df_top, df_all_pos, df_transactions
+    return df_stats, df_DD, df_interesting, df_top, df_all_pos, df_transactions, df_trade_win, df_trade_pnl
 
 @plotting.customize
 def create_returns_tear_sheet(returns, positions=None,
                               transactions=None,
+                              positions_bm=None,
+                              transactions_bm=None,
                               live_start_date=None,
                               cone_std=(1.0, 1.5, 2.0),
                               benchmark_rets=None,
@@ -671,7 +684,9 @@ def create_returns_tear_sheet(returns, positions=None,
                               turnover_denom='AGB',
                               header_rows=None,
                               return_fig=False,
-                              stats_only=False):
+                              stats_only=False,
+                              backtest_params=None,
+                              Benchmark_params=None):
     """
     Generate a number of plots for analyzing a strategy's returns.
 
@@ -726,19 +741,21 @@ def create_returns_tear_sheet(returns, positions=None,
                              turnover_denom=turnover_denom,
                              bootstrap=bootstrap,
                              live_start_date=live_start_date,
-                             header_rows=header_rows)
+                             header_rows=header_rows,
+                             backtest_params=backtest_params)
     
     if benchmark_rets is not None:
 
         Bmark_perf_stats = plotting.show_perf_stats(benchmark_rets, benchmark_rets,
-                             positions=positions,
-                             transactions=transactions,
+                             positions=positions_bm,
+                             transactions=transactions_bm,
                              turnover_denom=turnover_denom,
                              bootstrap=bootstrap,
                              live_start_date=live_start_date,
-                             header_rows=header_rows)
+                             header_rows=header_rows,
+                             backtest_params=Benchmark_params)
 
-        perf_stats = perf_stats.join(Bmark_perf_stats)
+        perf_stats = pd.concat([perf_stats, Bmark_perf_stats], join='outer', axis=1)
 
     DD_stats = plotting.show_worst_drawdown_periods(returns)
 
@@ -1133,6 +1150,8 @@ def create_txn_tear_sheet(returns, positions, transactions,
 
     df_txn_desp = df_txn.describe().join(df_turnover.describe())
 
+    df_trade_win, df_trade_pnl = txn.get_by_trade_stats(transactions)
+
     try:
         plotting.plot_daily_turnover_hist(transactions, positions,
                                           ax=ax_turnover_hist)
@@ -1163,7 +1182,7 @@ def create_txn_tear_sheet(returns, positions, transactions,
         ax.title.set_color('pink')
 
     if return_fig:
-        return df_txn_desp, fig
+        return df_txn_desp, df_trade_win, df_trade_pnl, fig
 
 
 @plotting.customize

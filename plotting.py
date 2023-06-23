@@ -552,7 +552,7 @@ STAT_FUNCS_PCT = [
 def show_perf_stats(returns, factor_returns=None, positions=None,
                     transactions=None, turnover_denom='AGB',
                     live_start_date=None, bootstrap=False,
-                    header_rows=None):
+                    header_rows=None, backtest_params=None):
     """
     Modified by Yuchen, return perf_stats:pd.DateFrame
     Prints some performance metrics of the strategy.
@@ -666,6 +666,10 @@ def show_perf_stats(returns, factor_returns=None, positions=None,
             else:
                 perf_stats.loc[stat, column] = str(np.round(value,
                                                             3))
+    if backtest_params is not None:
+        for k in backtest_params.keys():
+            perf_stats.loc[k, perf_stats.columns[0]] = str(backtest_params[k])
+
     if header_rows is None:
         header_rows = date_rows
     else:
