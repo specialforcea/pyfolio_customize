@@ -600,6 +600,7 @@ def compute_all_stats_tables(returns, positions=None,
                               cone_std=(1.0, 1.5, 2.0),
                               benchmark_rets=None,
                               bootstrap=False,
+                              estimate_intraday='infer',
                               turnover_denom='AGB',
                               header_rows=None):
     """
@@ -649,6 +650,9 @@ def compute_all_stats_tables(returns, positions=None,
     ret = returns[col]
     if benchmark_rets is not None:
         ret = utils.clip_returns_to_benchmark(ret, benchmark_rets)
+
+    positions = utils.check_intraday(estimate_intraday, returns,
+                                     positions, transactions)
 
     df_stats = plotting.show_perf_stats(ret, benchmark_rets,
                                             positions=positions,

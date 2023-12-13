@@ -202,6 +202,7 @@ def get_turnover(positions, transactions, denominator='AGB'):
         )
 
     denom.index = denom.index.normalize()
+    denom = denom.groupby(denom.index.name).mean()
     turnover = traded_value.div(denom, axis='index')
     turnover = turnover.fillna(0)
     return turnover
@@ -244,8 +245,8 @@ def get_by_trade_stats(transactions):
     if isinstance(transactions, pd.DataFrame) and transactions.empty:
         return pd.DataFrame(), pd.DataFrame()
     df_trade_pnl = transactions.reset_index().groupby('symbol').apply(
-        lambda x: x.join(calc_vwap(x))
-    ).sort_values(['symbol', 'date']).set_index(['symbol', 'date'])
+        lambda x: x[['date','price','amount']].join(calc_vwap(x))
+    ).reset_index().sort_values(['symbol', 'date']).set_index(['symbol', 'date'])
     
     df_trade_win = df_trade_pnl.dropna()
     df_trade_win = df_trade_win.groupby('symbol').agg(

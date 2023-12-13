@@ -659,7 +659,7 @@ def show_perf_stats(returns, factor_returns=None, positions=None,
         perf_stats = pd.DataFrame(perf_stats_all, columns=[returns.name])
 
     for column in perf_stats.columns:
-        for stat, value in perf_stats[column].iteritems():
+        for stat, value in perf_stats[column].items():
             if stat in STAT_FUNCS_PCT:
                 perf_stats.loc[stat, column] = str(np.round(value * 100,
                                                             2)) + '%'
@@ -1583,7 +1583,8 @@ def plot_daily_turnover_hist(transactions, positions,
     if ax is None:
         ax = plt.gca()
     turnover = txn.get_turnover(positions, transactions)
-    sns.distplot(turnover, ax=ax, **kwargs)
+    # sns.distplot(turnover, ax=ax, **kwargs)
+    ax.hist(turnover, bins=50, alpha=0.5, **kwargs)
     ax.set_title('Distribution of daily turnover rates')
     ax.set_xlabel('Turnover rate')
     return ax

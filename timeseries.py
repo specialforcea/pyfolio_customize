@@ -739,7 +739,7 @@ def perf_stats(returns, factor_returns=None, positions=None,
         Performance metrics.
     """
 
-    period = returns.index[-1] - returns.index[-2]
+    period = (returns.index[-50:] - returns.index[-51:-1]).min()
     if period == pd.Timedelta('1 days 00:00:00'):
         period = DAILY
     elif period == pd.Timedelta('0 days 00:05:00'):
