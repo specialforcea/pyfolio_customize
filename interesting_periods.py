@@ -97,3 +97,8 @@ PERIODS['COVID_Crisis'] = (pd.Timestamp('20200301'),
 
 PERIODS['COVID_Rally'] = (pd.Timestamp('20200319'),
                          pd.Timestamp('20211231'))
+
+# convert datetime to UTC timezones
+
+for key, value in PERIODS.items():
+    PERIODS[key] = tuple([pd.Timestamp(x, tz='UTC') for x in value])
